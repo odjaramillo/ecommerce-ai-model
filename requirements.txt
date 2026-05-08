@@ -6,3 +6,7 @@ uvicorn
 pydantic
 pytest
 joblib
+httpx
+optuna
+imbalanced-learn
+xgboost

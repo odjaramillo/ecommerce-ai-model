@@ -1,0 +1,195 @@
+{
+  "info": {
+    "_postman_id": "ecommerce-ai-model-collection",
+    "name": "Sistema Predictivo E-commerce API",
+    "description": "Colección de endpoints para el Sistema Predictivo de Intención de Compra E-commerce. Incluye health check y predicción de intención de compra.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:7860/health",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "7860",
+          "path": ["health"]
+        },
+        "description": "Verifica que el servicio está activo y que el modelo se cargó correctamente."
+      },
+      "response": [
+        {
+          "name": "Servicio OK",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:7860/health",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "7860",
+              "path": ["health"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"status\": \"ok\",\n  \"model_loaded\": true\n}"
+        }
+      ]
+    },
+    {
+      "name": "Predicción — Alta Intención de Compra",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"Administrative\": 5,\n  \"Administrative_Duration\": 150.5,\n  \"Informational\": 2,\n  \"Informational_Duration\": 45.0,\n  \"ProductRelated\": 35,\n  \"ProductRelated_Duration\": 2500.75,\n  \"BounceRates\": 0.005,\n  \"ExitRates\": 0.012,\n  \"PageValues\": 25.5,\n  \"SpecialDay\": 0.0,\n  \"Month\": \"Nov\",\n  \"OperatingSystems\": 2,\n  \"Browser\": 2,\n  \"Region\": 1,\n  \"TrafficType\": 2,\n  \"VisitorType\": \"Returning_Visitor\",\n  \"Weekend\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:7860/api/predict_intent",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "7860",
+          "path": ["api", "predict_intent"]
+        },
+        "description": "Ejemplo de sesión con alta intención de compra. Tiene muchas páginas producto, alta duración y valores de página positivos."
+      },
+      "response": [
+        {
+          "name": "Alta Probabilidad",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Administrative\": 5,\n  \"Administrative_Duration\": 150.5,\n  \"Informational\": 2,\n  \"Informational_Duration\": 45.0,\n  \"ProductRelated\": 35,\n  \"ProductRelated_Duration\": 2500.75,\n  \"BounceRates\": 0.005,\n  \"ExitRates\": 0.012,\n  \"PageValues\": 25.5,\n  \"SpecialDay\": 0.0,\n  \"Month\": \"Nov\",\n  \"OperatingSystems\": 2,\n  \"Browser\": 2,\n  \"Region\": 1,\n  \"TrafficType\": 2,\n  \"VisitorType\": \"Returning_Visitor\",\n  \"Weekend\": false\n}"
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"classification\": \"compra\",\n  \"probability\": 0.7845,\n  \"human_readable_message\": \"El usuario presenta un 78.45% de probabilidades de hacer la compra, lo que lo hace bastante probable\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Predicción — Baja Intención de Compra",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"Administrative\": 0,\n  \"Administrative_Duration\": 0.0,\n  \"Informational\": 0,\n  \"Informational_Duration\": 0.0,\n  \"ProductRelated\": 1,\n  \"ProductRelated_Duration\": 5.5,\n  \"BounceRates\": 0.15,\n  \"ExitRates\": 0.20,\n  \"PageValues\": 0.0,\n  \"SpecialDay\": 0.0,\n  \"Month\": \"Feb\",\n  \"OperatingSystems\": 3,\n  \"Browser\": 2,\n  \"Region\": 6,\n  \"TrafficType\": 1,\n  \"VisitorType\": \"New_Visitor\",\n  \"Weekend\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:7860/api/predict_intent",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "7860",
+          "path": ["api", "predict_intent"]
+        },
+        "description": "Ejemplo de sesión con baja intención de compra. Visitante nuevo, pocas páginas vistas, alto bounce rate."
+      },
+      "response": [
+        {
+          "name": "Baja Probabilidad",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Administrative\": 0,\n  \"Administrative_Duration\": 0.0,\n  \"Informational\": 0,\n  \"Informational_Duration\": 0.0,\n  \"ProductRelated\": 1,\n  \"ProductRelated_Duration\": 5.5,\n  \"BounceRates\": 0.15,\n  \"ExitRates\": 0.20,\n  \"PageValues\": 0.0,\n  \"SpecialDay\": 0.0,\n  \"Month\": \"Feb\",\n  \"OperatingSystems\": 3,\n  \"Browser\": 2,\n  \"Region\": 6,\n  \"TrafficType\": 1,\n  \"VisitorType\": \"New_Visitor\",\n  \"Weekend\": false\n}"
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"classification\": \"no_compra\",\n  \"probability\": 0.0234,\n  \"human_readable_message\": \"El usuario presenta un 2.34% de probabilidades de hacer la compra, lo que lo hace poco probable\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Predicción — Moderada Intención",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"Administrative\": 2,\n  \"Administrative_Duration\": 25.0,\n  \"Informational\": 1,\n  \"Informational_Duration\": 15.5,\n  \"ProductRelated\": 12,\n  \"ProductRelated_Duration\": 450.0,\n  \"BounceRates\": 0.025,\n  \"ExitRates\": 0.04,\n  \"PageValues\": 5.0,\n  \"SpecialDay\": 0.0,\n  \"Month\": \"Mar\",\n  \"OperatingSystems\": 2,\n  \"Browser\": 1,\n  \"Region\": 3,\n  \"TrafficType\": 4,\n  \"VisitorType\": \"Returning_Visitor\",\n  \"Weekend\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:7860/api/predict_intent",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "7860",
+          "path": ["api", "predict_intent"]
+        },
+        "description": "Ejemplo de sesión con probabilidad moderada de compra. Comportamiento intermedio entre alta y baja intención."
+      },
+      "response": []
+    }
+  ]
+}
