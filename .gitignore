@@ -3,5 +3,4 @@ artifacts/*.pkl
 __pycache__/
 *.pyc
 .pytest_cache/
-.local_deps/.local_deps/
 .local_deps/
