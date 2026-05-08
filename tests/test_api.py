@@ -188,3 +188,75 @@ def test_probability_tier_low(monkeypatch):
     assert response.status_code == 200
     data = response.json()
     assert "poco probable" in data["human_readable_message"]
+
+
+def _predict_fast_with_mocked_proba(monkeypatch, proba):
+    """Start app with a fake model loaded so lifespan injects DummyModel for fast endpoint."""
+    fake_path = MagicMock()
+    fake_path.exists.return_value = True
+    monkeypatch.setattr(api_module, "ARTIFACT_PATH", fake_path)
+    monkeypatch.setattr(api_module.joblib, "load", lambda path: DummyModel(proba))
+    with TestClient(app) as client:
+        payload = {
+            "Administrative": 0,
+            "Administrative_Duration": 0.0,
+            "Informational": 0,
+            "Informational_Duration": 0.0,
+            "ProductRelated": 1,
+            "ProductRelated_Duration": 5.0,
+            "BounceRates": 0.05,
+            "ExitRates": 0.05,
+            "PageValues": 0.0,
+            "SpecialDay": 0.0,
+            "Month": "Jan",
+            "OperatingSystems": 2,
+            "Browser": 2,
+            "Region": 1,
+            "TrafficType": 1,
+            "VisitorType": "New_Visitor",
+            "Weekend": True,
+        }
+        return client.post("/api/predict_intent_fast", json=payload)
+
+
+def test_predict_intent_fast_valid(monkeypatch):
+    """Fast endpoint returns the same correct schema as the main endpoint."""
+    response = _predict_fast_with_mocked_proba(monkeypatch, 0.75)
+    assert response.status_code == 200
+    data = response.json()
+    required_fields = {"classification", "probability", "human_readable_message"}
+    assert required_fields.issubset(data.keys())
+    assert data["classification"] == "compra"
+    assert data["probability"] == 0.75
+    assert "bastante probable" in data["human_readable_message"]
+
+
+def test_predict_intent_fast_model_not_loaded(monkeypatch):
+    """When model is not loaded, POST /api/predict_intent_fast should return 503."""
+    fake_path = MagicMock()
+    fake_path.exists.return_value = False
+    monkeypatch.setattr(api_module, "ARTIFACT_PATH", fake_path)
+    with TestClient(app) as client:
+        payload = {
+            "Administrative": 0,
+            "Administrative_Duration": 0.0,
+            "Informational": 0,
+            "Informational_Duration": 0.0,
+            "ProductRelated": 1,
+            "ProductRelated_Duration": 5.0,
+            "BounceRates": 0.05,
+            "ExitRates": 0.05,
+            "PageValues": 0.0,
+            "SpecialDay": 0.0,
+            "Month": "Jan",
+            "OperatingSystems": 2,
+            "Browser": 2,
+            "Region": 1,
+            "TrafficType": 1,
+            "VisitorType": "New_Visitor",
+            "Weekend": True,
+        }
+        response = client.post("/api/predict_intent_fast", json=payload)
+        assert response.status_code == 503
+        data = response.json()
+        assert data["detail"] == "Model not loaded. Service unavailable."

@@ -188,6 +188,18 @@ Recibe las 17 features de una sesión y devuelve la predicción de intención de
 }
 ```
 
+#### `POST /api/predict_intent_fast`
+
+Versión optimizada del endpoint de predicción que **evita la creación de `pd.DataFrame`** y pasa un arreglo NumPy directamente al pipeline. Esto reduce overhead para inferencia de una sola fila y es útil como demostración académica de serving optimizado.
+
+Acepta el **mismo request body** que `/api/predict_intent` y devuelve el **mismo formato de respuesta**.
+
+**Request body (JSON):** *(igual que `/api/predict_intent`)*
+
+**Response body (JSON):** *(igual que `/api/predict_intent`)*
+
+> **Nota:** Este endpoint es un *bonus* para demostración. Si el pipeline interno requiere nombres de columnas (por ejemplo, `ColumnTransformer` con nombres de features), el modelo de producción actual podría necesitar ajustes para soportar arrays planos.
+
 ### Lógica de Respuesta
 
 - **`probability`**: Probabilidad de la clase positiva (`Revenue = True`), redondeada a 4 decimales.

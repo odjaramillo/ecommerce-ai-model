@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import joblib
+import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -99,8 +100,12 @@ def predict_intent(request: PredictRequest):
     df = pd.DataFrame(data)
 
     proba = model_pipeline.predict_proba(df)[0][1]
-    probability = round(float(proba), 4)
+    return _build_response(proba)
 
+
+def _build_response(proba: float) -> dict:
+    """Build the standard JSON response from a positive-class probability."""
+    probability = round(float(proba), 4)
     classification = "compra" if probability >= 0.5 else "no_compra"
 
     prob_pct = f"{probability * 100:.2f}"
@@ -125,3 +130,41 @@ def predict_intent(request: PredictRequest):
         "probability": probability,
         "human_readable_message": human_readable_message,
     }
+
+
+@app.post("/api/predict_intent_fast", response_model=PredictResponse)
+def predict_intent_fast(request: PredictRequest):
+    if not model_loaded or model_pipeline is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Model not loaded. Service unavailable.",
+        )
+
+    # Build NumPy array directly (shape 1x17), preserving column order
+    array = np.array(
+        [
+            [
+                request.Administrative,
+                request.Administrative_Duration,
+                request.Informational,
+                request.Informational_Duration,
+                request.ProductRelated,
+                request.ProductRelated_Duration,
+                request.BounceRates,
+                request.ExitRates,
+                request.PageValues,
+                request.SpecialDay,
+                request.Month,
+                request.OperatingSystems,
+                request.Browser,
+                request.Region,
+                request.TrafficType,
+                request.VisitorType,
+                request.Weekend,
+            ]
+        ],
+        dtype=object,
+    )
+
+    proba = model_pipeline.predict_proba(array)[0][1]
+    return _build_response(proba)
