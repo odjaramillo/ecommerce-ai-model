@@ -327,7 +327,7 @@ def train() -> tuple[Pipeline, dict, dict]:
 
     # Serialize model
     ARTIFACT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(best_pipeline, ARTIFACT_PATH)
+    joblib.dump(best_pipeline, ARTIFACT_PATH, compress=3)
     logger.info(f"Model serialized to {ARTIFACT_PATH}")
 
     # Save config with threshold

@@ -1,0 +1,19 @@
+{
+  "threshold": 0.1,
+  "model_name": "rf-bal-01",
+  "params": {
+    "clf__n_estimators": 300,
+    "clf__max_depth": null,
+    "clf__min_samples_split": 2,
+    "clf__min_samples_leaf": 1,
+    "clf__criterion": "entropy"
+  },
+  "test_metrics": {
+    "accuracy": 0.25,
+    "precision": 0.25,
+    "recall": 1.0,
+    "f1": 0.4,
+    "roc_auc": 0.6666666666666667
+  },
+  "description": "RandomForest balance-focused - rf-bal-01"
+}

@@ -1,6 +1,8 @@
 venv/
-artifacts/*.pkl
-artifacts/model_config.json
+artifacts/ecommerce_pipeline_optuna.pkl
+artifacts/ecommerce_pipeline_smote.pkl
+artifacts/ecommerce_pipeline_smote_hpo.pkl
+artifacts/ecommerce_pipeline_xgboost.pkl
 __pycache__/
 *.pyc
 .pytest_cache/
