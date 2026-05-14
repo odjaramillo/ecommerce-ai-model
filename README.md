@@ -4,6 +4,22 @@ Servicio de Machine Learning para predecir la intención de compra de sesiones d
 
 ---
 
+## Contexto del Negocio
+
+Una empresa de comercio electrónico requiere mejorar su inteligencia de negocios detectando de forma temprana si un usuario realizará una compra durante su sesión de navegación. Este sistema permite a la tienda mostrar dinámicamente productos de mayor valor para aumentar el ingreso general (*revenue*), consumiendo predicciones en tiempo real desde el frontend web.
+
+El dataset utilizado contiene **12,330 sesiones de navegación** con **17 atributos predictivos** agrupados en tres categorías de negocio:
+
+| Categoría | Features | Significado comercial |
+|-----------|----------|----------------------|
+| **Navegación** | `Administrative`, `Administrative_Duration`, `Informational`, `Informational_Duration`, `ProductRelated`, `ProductRelated_Duration` | Cantidad de páginas visitadas por tipo y tiempo invertido. Un usuario que pasa más tiempo en páginas de producto (`ProductRelated_Duration`) tiene mayor probabilidad de compra. |
+| **Métricas de Google Analytics** | `BounceRates`, `ExitRates`, `PageValues` | `BounceRates`: porcentaje de sesiones que abandonan sin interactuar. `ExitRates`: porcentaje de sesiones donde la página fue la última visitada. `PageValues`: valor comercial promedio de la página antes de una transacción. |
+| **Contexto temporal y demográfico** | `SpecialDay`, `Month`, `Weekend`, `OperatingSystems`, `Browser`, `Region`, `TrafficType`, `VisitorType` | `SpecialDay` mide proximidad a fechas festivas (0 a 1). `VisitorType` distingue entre visitantes nuevos y recurrentes, siendo estos últimos más propensos a comprar. |
+
+La variable objetivo es **`Revenue`** (booleana), que indica si la sesión finalizó en una compra. El dataset presenta un desbalance natural: aproximadamente **84.5 % de sesiones sin compra** y **15.5 % con compra**, un factor crítico a considerar en el diseño del modelo.
+
+---
+
 ## Arquitectura
 
 ```text
@@ -45,16 +61,43 @@ El dataset contiene **17 features de entrada** (10 numéricas y 7 categóricas/b
 | Categóricas / Booleanas | `Month`, `OperatingSystems`, `Browser`, `Region`, `TrafficType`, `VisitorType`, `Weekend` |
 | Objetivo | `Revenue` (boolean) |
 
-### Preprocesamiento
+### 1. Limpieza de Datos
 
-- **División estratificada** 70/15/15 (train / validación / test) preservando la proporción de la clase positiva.
-- **Escalado numérico**: `RobustScaler` (mediana + IQR) para robustez ante outliers en duraciones y tasas de rebote.
-- **Codificación categórica**: `OneHotEncoder(handle_unknown="ignore")` para variables categóricas.
-- Todo se encapsula en un único `sklearn.Pipeline` para evitar *data leakage* entre entrenamiento e inferencia.
+El dataset no contiene valores nulos ni duplicados. Se verificó la integridad de tipos de datos (numéricos vs categóricos) y se validó que `Revenue` solo contenga valores booleanos. No fue necesario eliminar registros ni corregir inconsistencias.
 
-### Manejo del Desbalance de Clases
+### 2. Imputación de Valores Faltantes
 
-El dataset presenta un desbalance aproximado de **84.5 % no compra / 15.5 % compra**. Para mitigarlo se utiliza `class_weight='balanced'` en el `RandomForestClassifier`, ajustando automáticamente los pesos inversamente proporcionales a la frecuencia de cada clase.
+Aunque el dataset actual no tiene valores faltantes, el pipeline incorpora **`SimpleImputer`** de scikit-learn como medida preventiva para datos futuros:
+
+- **Variables numéricas**: `SimpleImputer(strategy='median')` — reemplaza faltantes con la mediana, robusta ante outliers.
+- **Variables categóricas**: `SimpleImputer(strategy='most_frequent')` — reemplaza faltantes con la categoría más frecuente.
+
+Ambos imputadores están integrados dentro del `ColumnTransformer` del pipeline, garantizando que los valores de imputación se aprendan **únicamente del conjunto de entrenamiento** (sin *data leakage*). La implementación se encuentra en `src/pipeline.py`.
+
+> **¿Por qué no KNN Imputer?** KNN requiere calcular distancias entre filas, lo cual no es semánticamente válido para variables categóricas como `Month` o `VisitorType`. `SimpleImputer` es determinístico, rápido y no introduce sesgos de distancia sobre datos nominales.
+
+### 3. Aumento de Datos
+
+**El modelo final NO utiliza aumento de datos.** Se evaluó **SMOTE** (*Synthetic Minority Oversampling Technique*) como técnica de sobremuestreo de la clase minoritaria (`Revenue=True`), documentado en [`EXPERIMENTOS.md`](EXPERIMENTOS.md). Los resultados mostraron una mejora marginal en precisión (+2.6 pp) pero una caída en recall (-2.4 pp), con un ROC-AUC prácticamente idéntico (+0.0009).
+
+Dado que el desbalance no es extremo (~15.5 % de clase positiva) y que `class_weight='balanced'` ya ajusta las ponderaciones internas del clasificador, se optó por **no aplicar SMOTE** en el pipeline de producción. Esta decisión simplifica el modelo, reduce el riesgo de *data leakage* por ejemplos sintéticos y mantiene la integridad del conjunto de validación.
+
+### 4. Preprocesamiento
+
+- **División estratificada** 70/15/15 (train / validación / test) preservando la proporción de la clase positiva en cada partición.
+- **Escalado numérico**: `RobustScaler` (mediana + IQR) para mitigar el impacto de outliers en duraciones y tasas.
+- **Codificación categórica**: `OneHotEncoder(handle_unknown="ignore")` para variables categóricas, evitando que categorías no vistas en producción rompan la inferencia.
+- Todo se encapsula en un único `sklearn.Pipeline` con `ColumnTransformer`, eliminando el riesgo de *data leakage* entre entrenamiento e inferencia.
+
+### 5. Manejo del Desbalance de Clases
+
+El dataset presenta un desbalance de **84.5 % no compra / 15.5 % compra**. Para mitigarlo se utiliza `class_weight='balanced'` en el `RandomForestClassifier`, que ajusta automáticamente los pesos de cada clase de forma inversamente proporcional a su frecuencia:
+
+```
+w_j = n_samples / (n_classes × n_samples_j)
+```
+
+Esto penaliza más los errores en la clase minoritaria sin necesidad de modificar los datos de entrenamiento.
 
 ---
 
@@ -268,14 +311,24 @@ La API estará expuesta en `http://localhost:7860`.
 
 ---
 
-## Despliegue en Hugging Face Spaces
+## Despliegue
+
+### Render (Producción)
+
+El servicio está desplegado en **Render** utilizando el `Dockerfile` incluido en el repositorio. Render construye la imagen automáticamente desde GitHub y expone el servicio en el puerto configurado.
+
+1. Conectar el repositorio de GitHub a Render.
+2. Seleccionar "Web Service" y apuntar al `Dockerfile`.
+3. Render detecta automáticamente el puerto 7860 definido en el `EXPOSE` del Dockerfile.
+4. El modelo serializado (`artifacts/ecommerce_pipeline.pkl`) está incluido en el repositorio y se empaqueta en la imagen durante el build.
+
+### Hugging Face Spaces (Alternativo)
 
 1. Crear un nuevo Space en Hugging Face seleccionando el SDK **Docker**.
-2. Subir el contenido de este repositorio (incluyendo `artifacts/ecommerce_pipeline.pkl`).
-3. Hugging Face construirá automáticamente la imagen usando el `Dockerfile` y expondrá el servicio en el puerto configurado (7860).
-4. El artefacto serializado se incluye en la imagen para un *cold start* determinista y rápido.
+2. Subir el contenido de este repositorio.
+3. Hugging Face construye la imagen y expone el servicio en el puerto 7860.
 
-> **Nota**: Para evitar tiempos de inicio lentos, el modelo debe entrenarse previamente y el archivo `artifacts/ecommerce_pipeline.pkl` debe estar presente en el repositorio antes del despliegue.
+> **Nota**: El artefacto serializado debe estar presente en el repositorio antes del despliegue. Tanto Render como Hugging Face Spaces lo incluyen en la imagen Docker para un *cold start* determinista.
 
 ---
 
@@ -300,11 +353,7 @@ La API estará expuesta en `http://localhost:7860`.
 ecommerce-ai-model/
 ├── artifacts/
 │   ├── ecommerce_pipeline.pkl              # Modelo principal serializado
-│   ├── model_config.json                   # Config con threshold óptimo y métricas
-│   ├── ecommerce_pipeline_optuna.pkl       # Modelo Optuna (experimento)
-│   ├── ecommerce_pipeline_smote.pkl        # Modelo SMOTE (experimento)
-│   ├── ecommerce_pipeline_smote_hpo.pkl    # Modelo SMOTE+HPO (experimento)
-│   └── ecommerce_pipeline_xgboost.pkl      # Modelo XGBoost (experimento)
+│   └── model_config.json                   # Config con threshold óptimo y métricas
 ├── data/
 │   └── dataset_shop.csv                # Dataset raw
 ├── src/
