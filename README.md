@@ -1,6 +1,28 @@
 # Sistema Predictivo de Intención de Compra E-commerce
 
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.136-green)](https://fastapi.tiangolo.com/)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.8-orange)](https://scikit-learn.org/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](https://www.docker.com/)
+[![Render](https://img.shields.io/badge/Deploy-Render-46E3B7)](https://render.com/)
+[![Accuracy](https://img.shields.io/badge/Accuracy-89.41%25-brightgreen)]()
+
 Servicio de Machine Learning para predecir la intención de compra de sesiones de navegación en un sitio de e-commerce. Incluye un pipeline completo de entrenamiento offline con Random Forest, búsqueda manual de hiperparámetros, threshold tuning y una API REST con FastAPI para inferencia en tiempo real.
+
+---
+
+## Tabla de Contenidos
+
+- [Contexto del Negocio](#contexto-del-negocio)
+- [Arquitectura](#arquitectura)
+- [Pipeline de Data Science](#pipeline-de-data-science)
+- [Entrenamiento del Modelo](#entrenamiento-del-modelo)
+- [API Documentation](#api-documentation)
+- [Setup Local](#setup-local)
+- [Docker](#docker)
+- [Despliegue](#despliegue)
+- [Decisiones de Arquitectura](#decisiones-de-arquitectura)
+- [Estructura del Proyecto](#estructura-del-proyecto)
 
 ---
 
@@ -22,25 +44,25 @@ La variable objetivo es **`Revenue`** (booleana), que indica si la sesión final
 
 ## Arquitectura
 
-```text
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
-│  dataset_shop   │────▶│  src/pipeline.py │────▶│  src/train.py       │
-│   (raw CSV)     │     │  Clean + Split   │     │  ManualSearch       │
-└─────────────────┘     └──────────────────┘     └─────────────────────┘
-                                                           │
-                                                           ▼
-                                              ┌─────────────────────┐
-                                              │ artifacts/ecommerce │
-                                              │   _pipeline.pkl     │
-                                              └─────────────────────┘
-                                                           │
-                                                           ▼
-                                              ┌─────────────────────┐
-                                              │    src/api.py       │
-                                              │   FastAPI + UVicorn │
-                                              │    Puerto 7860      │
-                                              └─────────────────────┘
-```
+> ```
+> ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
+> │  dataset_shop   │────▶│  src/pipeline.py │────▶│  src/train.py       │
+> │   (raw CSV)     │     │  Clean + Split   │     │  ManualSearch       │
+> └─────────────────┘     └──────────────────┘     └─────────────────────┘
+>                                                        │
+>                                                        ▼
+>                                           ┌─────────────────────┐
+>                                           │ artifacts/ecommerce │
+>                                           │   _pipeline.pkl     │
+>                                           └─────────────────────┘
+>                                                        │
+>                                                        ▼
+>                                           ┌─────────────────────┐
+>                                           │    src/api.py       │
+>                                           │   FastAPI + UVicorn │
+>                                           │    Puerto 7860      │
+>                                           └─────────────────────┘
+> ```
 
 El sistema sigue un patrón **offline training / online serving**:
 1. El pipeline de datos (`src/pipeline.py`) limpia y divide el dataset.
@@ -102,6 +124,9 @@ Esto penaliza más los errores en la clase minoritaria sin necesidad de modifica
 ---
 
 ## Entrenamiento del Modelo
+
+> **Resumen de Resultados**  
+> El modelo final (`rf-bal-20`) alcanza **89.41% de accuracy** en test con un threshold optimizado de **0.36**, detectando **199 de 286 compradores reales** (recall 69.58%) con solo 109 falsos positivos. El pipeline completo — desde la carga del CSV hasta la predicción — está contenido en un único `sklearn.Pipeline` serializado.
 
 ### Algoritmo
 
@@ -225,6 +250,8 @@ Recibe las 17 features de una sesión y devuelve la predicción de intención de
   "human_readable_message": "El usuario presenta un 78.45% de probabilidades de hacer la compra, lo que lo hace bastante probable"
 }
 ```
+
+> **Nota para testing**: Se incluye una [colección de Postman](postman_collection.json) (`postman_collection.json`) con todos los endpoints configurados para pruebas rápidas.
 
 #### `POST /api/predict_intent_fast`
 
