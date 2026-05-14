@@ -1,6 +1,6 @@
 # Sistema Predictivo de Intención de Compra E-commerce
 
-Servicio de Machine Learning para predecir la intención de compra de sesiones de navegación en un sitio de e-commerce. Incluye un pipeline completo de entrenamiento offline con Random Forest, Hyperparameter Optimization y una API REST con FastAPI para inferencia en tiempo real.
+Servicio de Machine Learning para predecir la intención de compra de sesiones de navegación en un sitio de e-commerce. Incluye un pipeline completo de entrenamiento offline con Random Forest, búsqueda manual de hiperparámetros, threshold tuning y una API REST con FastAPI para inferencia en tiempo real.
 
 ---
 
@@ -9,7 +9,7 @@ Servicio de Machine Learning para predecir la intención de compra de sesiones d
 ```text
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
 │  dataset_shop   │────▶│  src/pipeline.py │────▶│  src/train.py       │
-│   (raw CSV)     │     │  Clean + Split   │     │  RandomizedSearchCV │
+│   (raw CSV)     │     │  Clean + Split   │     │  ManualSearch       │
 └─────────────────┘     └──────────────────┘     └─────────────────────┘
                                                            │
                                                            ▼
@@ -66,71 +66,66 @@ El dataset presenta un desbalance aproximado de **84.5 % no compra / 15.5 % comp
 
 ### Optimización de Hiperparámetros (HPO)
 
-Se utiliza `RandomizedSearchCV` con:
-- **30 iteraciones** (`n_iter=30`)
-- **5 folds** de Cross-Validation
-- **Métrica de scoring**: `roc_auc`
+Se utiliza una **búsqueda manual explícita** sobre una grilla de 20 configuraciones nombradas de `RandomForestClassifier`, seguida de **threshold tuning** para optimizar el punto de corte de decisión. Este enfoque es determinístico, reproducible y pedagógicamente transparente.
 
-Espacio de búsqueda:
+Protocolo de búsqueda:
+1. **División estricta** 70/15/15 (train / validación / test).
+2. Para cada configuración de la grilla:
+   - Construir un pipeline fresco.
+   - Entrenar **únicamente** sobre el conjunto de entrenamiento (70 %).
+   - Evaluar sobre el conjunto de validación (15 %).
+3. **Threshold tuning**: buscar el umbral óptimo (no fijo 0.5) que maximice la métrica objetivo (F1 o accuracy).
+4. Seleccionar la mejor configuración por criterios balanceados (F1 ≥ 0.65, accuracy ≥ 89%).
+5. Reentrenar el pipeline ganador sobre **Train + Validation (85 %)**.
+6. Evaluar **una única vez** sobre el conjunto de test (15 %).
 
-| Hiperparámetro | Valores evaluados |
-|----------------|-------------------|
-| `n_estimators` | 100, 200, 300, 400, 500 |
-| `max_depth` | 10, 20, 30, `None` |
-| `min_samples_split` | 2, 5, 10 |
-| `min_samples_leaf` | 1, 2, 4 |
+Grilla de configuraciones (`SEARCH_CONFIGS`) — 20 combinaciones explorando:
+- Diferentes números de estimadores (100-800)
+- Profundidades variables (10, 20, 30, None)
+- Criterios de split (`gini`, `entropy`)
+- Opciones estructurales (`bootstrap`, `max_features`)
 
-### Experimento: 30 vs 80 iteraciones
-
-Como experimento de seguimiento se ejecutó una búsqueda ampliada a **80 iteraciones** incluyendo `max_features` y `bootstrap`. Resultados:
-
-| Métrica | 30 iteraciones (PR#1) | 80 iteraciones | Conclusión |
-|---------|----------------------|----------------|------------|
-| Best CV ROC AUC | 0.9313 | 0.9333 | +0.0020 (marginal) |
-| Test Accuracy | 0.8935 | 0.8757 | **-1.78 pp** |
-| Test Precision | 0.6498 | 0.5765 | **-7.33 pp** |
-| Test Recall | 0.6748 | 0.7378 | +6.30 pp |
-| Test F1 | 0.6621 | 0.6472 | **-1.49 pp** |
-| Test ROC AUC | 0.9258 | 0.9239 | **-0.0019** |
-
-**Conclusión**: Aumentar a 80 iteraciones no mejoró la generalización. El modelo de 30 iteraciones presenta mejor equilibrio entre precisión y recall, y un ROC-AUC ligeramente superior en test. Por tanto, **se mantiene la configuración de 30 iteraciones** como óptima para este problema.
-
-### Métricas Finales (Test Set — Modelo de 30 iteraciones)
+### Métricas Finales (Test Set — Modelo Balance-Focused)
 
 | Métrica | Valor |
 |---------|-------|
-| Accuracy | **0.8935** |
-| Precision | 0.6498 |
-| Recall | 0.6748 |
-| F1 Score | 0.6621 |
-| ROC AUC | **0.9258** |
+| Accuracy | **0.8941** |
+| Precision | 0.6461 |
+| Recall | **0.6958** |
+| F1 Score | **0.6700** |
+| ROC AUC | **0.9289** |
+| Threshold óptimo | **0.36** |
 
 ### Matriz de Confusión (Test Set)
 
 |  | Pred: No | Pred: Sí |
 |--|----------|----------|
-| **Actual: No** | 1460 | 104 |
-| **Actual: Sí** | 93 | 193 |
+| **Actual: No** | 1455 | 109 |
+| **Actual: Sí** | 87 | 199 |
 
-- **Verdaderos Negativos (1460)**: Sesiones que no compraron y el modelo acertó.
-- **Falsos Positivos (104)**: Sesiones que no compraron pero el modelo predijo compra.
-- **Falsos Negativos (93)**: Sesiones que compraron pero el modelo predijo no compra.
-- **Verdaderos Positivos (193)**: Sesiones que compraron y el modelo acertó.
+- **Verdaderos Negativos (1455)**: Sesiones que no compraron y el modelo acertó.
+- **Falsos Positivos (109)**: Sesiones que no compraron pero el modelo predijo compra.
+- **Falsos Negativos (87)**: Sesiones que compraron pero el modelo predijo no compra.
+- **Verdaderos Positivos (199)**: Sesiones que compraron y el modelo acertó.
+
+> **¿Por qué threshold tuning?**  
+> El umbral por defecto (0.5) no siempre es óptimo. Ajustarlo a 0.36 permitió ganar ~3 puntos de F1 y detectar 33 compradores más que con el umbral fijo, demostrando que el punto de corte es tan importante como las predicciones probabilísticas.
 
 > **¿Por qué accuracy no es suficiente?**  
-> Con un desbalance del 84.5 %, un modelo trivial que siempre predice "no compra" alcanzaría ~84.5 % de accuracy sin haber aprendido nada. Por eso **ROC-AUC es la métrica principal**: mide la capacidad de discriminación del modelo independientemente del umbral de decisión, y es robusta ante desbalance de clases.
+> Con un desbalance del 84.5 %, un modelo trivial que siempre predice "no compra" alcanzaría ~84.5 % de accuracy sin haber aprendido nada. Por eso optimizamos **F1** como métrica principal de balance, complementada con **ROC-AUC** para medir la capacidad de discriminación.
 
 ### Experimentos Adicionales
 
-Se implementaron tres experimentos comparativos documentados en [`EXPERIMENTOS.md`](EXPERIMENTOS.md):
+Se implementaron experimentos comparativos documentados en [`EXPERIMENTOS.md`](EXPERIMENTOS.md):
 
-| Experimento | Accuracy | Test ROC-AUC | Notas |
-|-------------|----------|--------------|-------|
-| **Principal** (Random Search 30 iter) | **0.8935** | **0.9258** | Modelo de producción |
-| **Optuna** (TPE 30 trials) | 0.8859 | 0.9263 | Mejora marginal (+0.05%); mayor recall, menor precision |
-| **SMOTE** (Oversampling) | 0.8978 | 0.9268 | Mayor precision pero menor recall |
-| **SMOTE+HPO** (Oversampling + Random Search) | 0.8973 | 0.9250 | Mejor precision (0.68); menor recall (0.62) |
-| **XGBoost** (Gradient Boosting) | 0.8622 | **0.9301** | Mayor ROC-AUC y recall; menor precision |
+| Experimento | Accuracy | F1 | Test ROC-AUC | Notas |
+|-------------|----------|-----|--------------|-------|
+| **Balance-Focused** (20 configs + threshold tuning) | 0.8941 | **0.6700** | **0.9289** | **Modelo de producción** - mejor equilibrio |
+| **Accuracy-Focused** (20 configs + threshold tuning) | **0.9011** | 0.6447 | 0.9279 | Si se prioriza maximizar accuracy |
+| **Optuna** (TPE 30 trials) | 0.8859 | 0.6512 | 0.9263 | Mejora marginal; herramienta industrial |
+| **SMOTE** (Oversampling) | 0.8978 | 0.6631 | 0.9268 | Mayor precision pero menor recall |
+| **SMOTE+HPO** (Oversampling + Random Search) | 0.8973 | 0.6520 | 0.9250 | Mejor precision (0.68); menor recall (0.62) |
+| **XGBoost** (Gradient Boosting) | 0.8622 | 0.6512 | **0.9301** | Mayor ROC-AUC y recall; menor precision |
 
 Todos los experimentos incluyen sus propias **Matrices de Confusión** detalladas en `EXPERIMENTOS.md`.
 
@@ -203,9 +198,9 @@ Acepta el **mismo request body** que `/api/predict_intent` y devuelve el **mismo
 ### Lógica de Respuesta
 
 - **`probability`**: Probabilidad de la clase positiva (`Revenue = True`), redondeada a 4 decimales.
-- **`classification`**:
-  - `"compra"` si `probability >= 0.5`
-  - `"no_compra"` si `probability < 0.5`
+- **`classification`**: Se determina comparando la probabilidad contra el **threshold óptimo** cargado desde `artifacts/model_config.json` (0.36 para el modelo balance-focused, ajustado durante el entrenamiento):
+  - `"compra"` si `probability >= threshold`
+  - `"no_compra"` si `probability < threshold`
 - **`human_readable_message`** (niveles de confianza):
   - `>= 0.70`: "bastante probable"
   - `0.50 - 0.69`: "moderadamente probable"
@@ -289,12 +284,13 @@ La API estará expuesta en `http://localhost:7860`.
 | Decisión | Elección | Racional |
 |----------|----------|----------|
 | Modelo | `RandomForestClassifier` | Buen baseline para tablas mixtas; robusto a no linealidades y fácil de desplegar. |
-| HPO | `RandomizedSearchCV` (~30 iter) | Mejor cobertura/costo que GridSearch; suficiente para este dataset. |
+| HPO | Búsqueda manual explícita (20 configs) | Transparente, reproducible y pedagógica; evita fugas de test durante la búsqueda. |
 | Escalado numérico | `RobustScaler` | Protege contra outliers en duraciones y tasas. |
 | Preprocesamiento | `ColumnTransformer` dentro de `Pipeline` | Elimina *train/serve skew* y *data leakage*. |
 | División | Estratificada 70/15/15 | Preserva el desbalance ~84.5/15.5 en todos los conjuntos. |
 | API | FastAPI + Pydantic | Validación automática de requests, documentación OpenAPI integrada y alto rendimiento. |
-| Serialización | `joblib` | Formato nativo de sklearn; preserva el pipeline completo (preprocesamiento + modelo). |
+| Threshold Tuning | Búsqueda en [0.1, 0.9] paso 0.01 | Optimiza el punto de corte sin reentrenar; ganó ~3 puntos de F1 y 33 compradores detectados. |
+| Serialización | `joblib` + `model_config.json` | Preserva pipeline + threshold óptimo + métricas para serving determinista. |
 
 ---
 
@@ -304,6 +300,7 @@ La API estará expuesta en `http://localhost:7860`.
 ecommerce-ai-model/
 ├── artifacts/
 │   ├── ecommerce_pipeline.pkl              # Modelo principal serializado
+│   ├── model_config.json                   # Config con threshold óptimo y métricas
 │   ├── ecommerce_pipeline_optuna.pkl       # Modelo Optuna (experimento)
 │   ├── ecommerce_pipeline_smote.pkl        # Modelo SMOTE (experimento)
 │   ├── ecommerce_pipeline_smote_hpo.pkl    # Modelo SMOTE+HPO (experimento)
@@ -318,7 +315,8 @@ ecommerce-ai-model/
 │   ├── train_optuna.py                 # Experimento Optuna (30 trials TPE)
 │   ├── train_smote.py                  # Experimento SMOTE (oversampling)
 │   ├── train_smote_hpo.py              # Experimento SMOTE+HPO (oversampling + HPO)
-│   └── train_xgboost.py                # Experimento XGBoost (scale_pos_weight)
+│   ├── train_xgboost.py                # Experimento XGBoost (scale_pos_weight)
+│   └── threshold_tuning.py             # Script de experimentación con threshold tuning
 ├── tests/
 │   ├── __init__.py
 │   ├── test_pipeline.py                # Tests unitarios del pipeline

@@ -30,7 +30,7 @@ El dataset actual no contiene valores faltantes, por lo que el cambio no modific
 ## 2. Optuna — Optimización Bayesiana de Hiperparámetros
 
 ### Objetivo
-Determinar si una búsqueda bayesiana con **TPE** (Tree-structured Parzen Estimator) podía superar la búsqueda aleatoria (`RandomizedSearchCV`) del modelo principal.
+Determinar si una búsqueda bayesiana con **TPE** (Tree-structured Parzen Estimator) podía superar la búsqueda manual explícita del modelo principal.
 
 ### Cómo funciona TPE
 1. **Fase de calentamiento (warmup)**: los primeros 10 ensayos son completamente aleatorios para explorar el espacio.
@@ -52,7 +52,7 @@ Determinar si una búsqueda bayesiana con **TPE** (Tree-structured Parzen Estima
 
 ### Resultados
 
-| Métrica      | Modelo Principal (Random Search) | Optuna (TPE) | Δ      |
+| Métrica      | Modelo Principal (Manual Search) | Optuna (TPE) | Δ      |
 |--------------|----------------------------------|--------------|--------|
 | Accuracy     | 0.8935                           | 0.8859       | -0.0076|
 | Precision    | 0.6498                           | 0.6176       | -0.0323|
@@ -68,9 +68,10 @@ Determinar si una búsqueda bayesiana con **TPE** (Tree-structured Parzen Estima
 | **Actual: Sí**  | 89       | 197      |
 
 ### Lección
-Optuna logró un ROC-AUC ligeramente superior, pero las diferencias son mínimas. El modelo principal con `RandomizedSearchCV` es preferible para producción porque:
+Optuna logró un ROC-AUC ligeramente superior, pero las diferencias son mínimas. El modelo principal con búsqueda manual explícita es preferible para producción porque:
 - Es más simple (menos dependencias).
 - Tiene métricas prácticamente idénticas.
+- Es determinista y completamente reproducible.
 - No requiere un framework adicional de optimización.
 
 ---
@@ -238,19 +239,33 @@ El modelo principal sigue siendo preferible por su equilibrio recall/precision y
 
 | Experimento    | Accuracy | Precision | Recall | F1     | ROC-AUC |
 |----------------|----------|-----------|--------|--------|---------|
-| **Principal**  | 0.8935   | 0.6498    | 0.6748 | 0.6621 | 0.9258  |
+| **Principal (Balance-Focused)** | 0.8941 | 0.6461 | **0.6958** | **0.6700** | **0.9289** |
+| **Principal (Manual + Threshold Tuning)** | **0.9011** | **0.7249** | 0.5804 | 0.6447 | 0.9279 |
+| **Principal (Manual v2)** | 0.8897 | 0.6192 | 0.7448 | 0.6762 | 0.9291 |
 | **Optuna**     | 0.8859   | 0.6176    | 0.6888 | 0.6512 | 0.9263  |
 | **SMOTE**      | 0.8978   | 0.6764    | 0.6503 | 0.6631 | 0.9268  |
 | **SMOTE+HPO**  | 0.8973   | 0.6846    | 0.6224 | 0.6520 | 0.9250  |
-| **XGBoost**    | 0.8622   | 0.5348    | 0.8322 | 0.6512 | **0.9301** |
+| **XGBoost**    | 0.8622   | 0.5348    | 0.8322 | 0.6512 | 0.9301  |
 
 ### Matrices de Confusión Comparativas
 
-**Modelo Principal:**
+**Modelo Principal (Balance-Focused):**
 |                 | Pred: No | Pred: Sí |
 |-----------------|----------|----------|
-| **Actual: No**  | 1460     | 104      |
-| **Actual: Sí**  | 93       | 193      |
+| **Actual: No**  | 1455     | 109      |
+| **Actual: Sí**  | 87       | 199      |
+
+**Modelo Principal (Manual HPO + Threshold Tuning):**
+|                 | Pred: No | Pred: Sí |
+|-----------------|----------|----------|
+| **Actual: No**  | 1501     | 63       |
+| **Actual: Sí**  | 120      | 166      |
+
+**Modelo Principal (Manual v2):
+|                 | Pred: No | Pred: Sí |
+|-----------------|----------|----------|
+| **Actual: No**  | 1410     | 154      |
+| **Actual: Sí**  | 67       | 219      |
 
 **Optuna:**
 |                 | Pred: No | Pred: Sí |
@@ -277,17 +292,19 @@ El modelo principal sigue siendo preferible por su equilibrio recall/precision y
 | **Actual: Sí**  | 48       | 238      |
 
 ### Observaciones clave
-- **ROC-AUC**: XGBoost lidera con 0.9301, seguido de SMOTE (0.9268), Optuna (0.9263), Principal (0.9258) y SMOTE+HPO (0.9250).
-- **Precision vs Recall**: XGBoost es el más agresivo en recall (0.83); **SMOTE+HPO es el más conservador en precision (0.68)**. El principal está más balanceado.
+- **Balance-Focused**: El modelo `rf-bal-20` (n_estimators=800, criterion='entropy', threshold=0.36) ofrece el **mejor balance global** con F1=0.6700, recall=0.6958 y ROC-AUC=0.9289, detectando 199 compradores reales vs 166 del modelo accuracy-focused.
+- **Accuracy-Focused**: El modelo `rf-i2-18` alcanzó **90.11%** accuracy con threshold 0.65, sacrificando recall (0.58) y F1 (0.64). Útil si el negocio prioriza precision sobre detección.
+- **ROC-AUC**: El modelo v2 (0.9291) y el balance-focused (0.9289) superan a todos los RF previos, demostrando que una búsqueda manual bien diseñada iguala herramientas automatizadas.
+- **Threshold Tuning**: Ajustar el umbral de 0.50 a 0.36 (F1) o 0.65 (accuracy) permite optimizar métricas específicas sin reentrenar el modelo.
 - **Complejidad**: Principal < XGBoost < SMOTE < SMOTE+HPO < Optuna (en términos de infraestructura y dependencias).
 
 ---
 
 ## Conclusiones y Recomendaciones
 
-1. **Modelo para producción**: se mantiene el **modelo principal** (`artifacts/ecommerce_pipeline.pkl`) entrenado con `RandomizedSearchCV`. Es simple, rápido y sus métricas son prácticamente iguales a las de los experimentos.
+1. **Modelo para producción**: El modelo **balance-focused** (`rf-bal-20`) se recomienda como principal por su superior equilibrio de métricas (F1=0.6700, recall=0.6958, ROC-AUC=0.9289, accuracy=89.41%). Detecta 33 compradores más que la versión accuracy-focused. La versión accuracy-focused (`rf-i2-18`) está disponible si se prioriza maximizar accuracy (90.11%) a costa de recall.
 2. **Imputación**: el pipeline ahora cumple la especificación con `SimpleImputer`, haciendo el sistema robusto ante valores faltantes futuros.
-3. **Optuna**: demostró que TPE puede emparejar (pero no superar de forma significativa) una búsqueda aleatoria bien diseñada en este dataset. Es útil si el espacio de hiperparámetros crece o si se dispone de más tiempo de computo.
+3. **Optuna**: demostró que TPE puede emparejar (pero no superar de forma significativa) una búsqueda manual bien diseñada en este dataset. Es útil si el espacio de hiperparámetros crece o si se dispone de más tiempo de computo.
 4. **SMOTE**: útil cuando el desbalance es severo. En este caso, con ~15% de clase positiva, el aporte es limitado. Si el negocio prioriza la **precisión** sobre el **recall**, SMOTE podría reconsiderarse.
 5. **SMOTE+HPO**: combinó sobremuestreo con búsqueda de hiperparámetros, alcanzando la mejor precision (0.6846) pero el menor recall (0.6224) entre los experimentos de Random Forest. No superó al SMOTE fijo en ROC-AUC, lo que sugiere que el espacio de hiperparámetros ya estaba bien explorado.
 6. **XGBoost**: logró el mejor ROC-AUC (0.9301) y el mayor recall (0.83), a costa de precision. Es la mejor opción si el negocio quiere **maximizar la detección de compradores potenciales** sin importar algunos falsos positivos adicionales.

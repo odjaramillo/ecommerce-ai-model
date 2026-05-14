@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 ARTIFACT_PATH = Path(__file__).resolve().parent.parent / "artifacts" / "ecommerce_pipeline.pkl"
+CONFIG_PATH = Path(__file__).resolve().parent.parent / "artifacts" / "model_config.json"
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -18,6 +19,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 # Globals set during lifespan startup
 model_pipeline = None
 model_loaded = False
+model_threshold = 0.5  # Default threshold, overridden by config
 
 
 class PredictRequest(BaseModel):
@@ -48,12 +50,22 @@ class PredictResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global model_pipeline, model_loaded
+    global model_pipeline, model_loaded, model_threshold
     logger.info(f"Loading model from {ARTIFACT_PATH} ...")
     if ARTIFACT_PATH.exists():
         model_pipeline = joblib.load(ARTIFACT_PATH)
         model_loaded = True
         logger.info("Model loaded successfully.")
+        
+        # Load optimal threshold if available
+        if CONFIG_PATH.exists():
+            import json
+            with open(CONFIG_PATH) as f:
+                config = json.load(f)
+                model_threshold = config.get("threshold", 0.5)
+            logger.info(f"Using optimal threshold: {model_threshold}")
+        else:
+            logger.warning("No model config found, using default threshold 0.5")
     else:
         logger.error("Model artifact not found. Predictions will fail.")
         model_loaded = False
@@ -106,7 +118,7 @@ def predict_intent(request: PredictRequest):
 def _build_response(proba: float) -> dict:
     """Build the standard JSON response from a positive-class probability."""
     probability = round(float(proba), 4)
-    classification = "compra" if probability >= 0.5 else "no_compra"
+    classification = "compra" if probability >= model_threshold else "no_compra"
 
     prob_pct = f"{probability * 100:.2f}"
     if probability >= 0.70:

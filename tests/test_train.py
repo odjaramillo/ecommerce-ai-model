@@ -4,29 +4,58 @@ from pathlib import Path
 from unittest.mock import patch
 
 import joblib
+import numpy as np
 import pandas as pd
 import pytest
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.pipeline import Pipeline
 
 from src import train
-from src.train import SEARCH_SPACE, build_model_pipeline
+from src.train import SEARCH_CONFIGS, build_model_pipeline, run_manual_search, select_best_result
 
 
-class DummySearch:
-    """Mock RandomizedSearchCV that avoids heavy computation."""
+class StubPipeline:
+    """Lightweight stub for build_model_pipeline to avoid heavy computation in tests."""
 
-    last_call_kwargs = {}
+    def __init__(self):
+        self._params = {}
 
-    def __init__(self, *args, **kwargs):
-        DummySearch.last_call_kwargs = kwargs
-        self.best_estimator_ = build_model_pipeline()
-        self.best_params_ = {"clf__n_estimators": 100}
-        self.best_score_ = 0.95
-
-    def fit(self, X, y=None):
-        self.best_estimator_.fit(X, y)
+    def set_params(self, **params):
+        self._params = params
         return self
+
+    def fit(self, X, y):
+        return self
+
+    def predict(self, X):
+        n = len(X)
+        return np.array([i % 2 == 0 for i in range(n)])
+
+    def predict_proba(self, X):
+        n = len(X)
+        probs = np.array([0.3 + (i % 5) * 0.1 for i in range(n)], dtype=float)
+        return np.column_stack([1 - probs, probs])
+
+
+class TrackingStub(StubPipeline):
+    """Stub that tracks fit/predict calls for behavioral tests."""
+
+    def __init__(self):
+        super().__init__()
+        self.fit_calls = []
+        self.predict_calls = []
+
+    def fit(self, X, y):
+        self.fit_calls.append((len(X), len(y)))
+        return self
+
+    def predict(self, X):
+        self.predict_calls.append(len(X))
+        return super().predict(X)
+    
+    def predict_proba(self, X):
+        self.predict_calls.append(len(X))
+        return super().predict_proba(X)
 
 
 def _make_mock_df(n_rows: int = 20, seed: int = 42) -> pd.DataFrame:
@@ -84,19 +113,6 @@ def _make_mock_df(n_rows: int = 20, seed: int = 42) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def test_randomized_search_cv_config():
-    """Verify RandomizedSearchCV is configured with n_iter=30, cv=5, scoring='roc_auc'."""
-    with patch("src.train.RandomizedSearchCV", new=DummySearch):
-        with patch("src.train.load_data") as mock_load_data:
-            with patch("src.train.joblib.dump"):
-                mock_load_data.return_value = _make_mock_df(n_rows=24)
-                train.train()
-
-    assert DummySearch.last_call_kwargs["n_iter"] == 30
-    assert DummySearch.last_call_kwargs["cv"] == 5
-    assert DummySearch.last_call_kwargs["scoring"] == "roc_auc"
-
-
 def test_pipeline_structure():
     """Verify the pipeline contains preprocessor + classifier."""
     pipeline = build_model_pipeline()
@@ -109,16 +125,125 @@ def test_pipeline_structure():
     assert isinstance(clf, RandomForestClassifier)
 
 
-def test_model_artifact_created_after_training(tmp_path, monkeypatch):
-    """Verify model artifact is created after training."""
+def test_run_manual_search_iterates_all_configs():
+    """Verify run_manual_search evaluates every config in the grid."""
+    stub_grid = [
+        {"name": "cfg-a", "params": {"clf__n_estimators": 10}},
+        {"name": "cfg-b", "params": {"clf__n_estimators": 20}},
+        {"name": "cfg-c", "params": {"clf__n_estimators": 30}},
+    ]
+    df = _make_mock_df(n_rows=24)
+    X = df.drop(columns=["Revenue"])
+    y = df["Revenue"]
+
+    with patch("src.train.build_model_pipeline", return_value=StubPipeline()):
+        results = run_manual_search(X, y, X, y, config_grid=stub_grid)
+
+    assert len(results) == 3
+    names = [r["name"] for r in results]
+    assert names == ["cfg-a", "cfg-b", "cfg-c"]
+    for r in results:
+        assert "params" in r
+        assert "val_metrics" in r
+        assert "roc_auc" in r["val_metrics"]
+        assert "f1" in r["val_metrics"]
+
+
+def test_select_best_result_primary_by_roc_auc():
+    """Verify best result is selected by highest ROC-AUC."""
+    results = [
+        {"name": "cfg-a", "val_metrics": {"roc_auc": 0.80, "f1": 0.70}},
+        {"name": "cfg-b", "val_metrics": {"roc_auc": 0.90, "f1": 0.60}},
+        {"name": "cfg-c", "val_metrics": {"roc_auc": 0.85, "f1": 0.65}},
+    ]
+    best = select_best_result(results)
+    assert best["name"] == "cfg-b"
+
+
+def test_select_best_result_tiebreak_by_f1():
+    """When ROC-AUC is tied, verify F1 breaks the tie."""
+    results = [
+        {"name": "cfg-a", "val_metrics": {"roc_auc": 0.90, "f1": 0.65}},
+        {"name": "cfg-b", "val_metrics": {"roc_auc": 0.90, "f1": 0.75}},
+        {"name": "cfg-c", "val_metrics": {"roc_auc": 0.90, "f1": 0.70}},
+    ]
+    best = select_best_result(results)
+    assert best["name"] == "cfg-b"
+
+
+def test_select_best_result_tiebreak_by_name():
+    """When both ROC-AUC and F1 are tied, verify name ascending breaks the tie."""
+    results = [
+        {"name": "cfg-b", "val_metrics": {"roc_auc": 0.90, "f1": 0.70}},
+        {"name": "cfg-a", "val_metrics": {"roc_auc": 0.90, "f1": 0.70}},
+        {"name": "cfg-c", "val_metrics": {"roc_auc": 0.90, "f1": 0.70}},
+    ]
+    best = select_best_result(results)
+    assert best["name"] == "cfg-a"
+
+
+def test_manual_search_does_not_use_test_set():
+    """Verify run_manual_search never receives X_test/y_test."""
+    df = _make_mock_df(n_rows=24)
+    X = df.drop(columns=["Revenue"])
+    y = df["Revenue"]
+
+    stub_grid = [
+        {"name": "cfg-a", "params": {"clf__n_estimators": 10}},
+        {"name": "cfg-b", "params": {"clf__n_estimators": 20}},
+    ]
+
+    stub = TrackingStub()
+    with patch("src.train.build_model_pipeline", return_value=stub):
+        results = run_manual_search(X, y, X, y, config_grid=stub_grid)
+
+    # Each config fits on X (train) and predicts on X (val)
+    assert len(stub.fit_calls) == 2
+    assert len(stub.predict_calls) == 2
+    # If test was used, predict_calls would be different lengths or we'd see 3 calls
+
+
+def test_train_refits_on_train_plus_val_and_evaluates_test_once(tmp_path, monkeypatch):
+    """Verify train() refits best config on Train+Val and evaluates Test exactly once."""
     artifact_path = tmp_path / "ecommerce_pipeline.pkl"
     monkeypatch.setattr(train, "ARTIFACT_PATH", artifact_path)
 
-    with patch("src.train.RandomizedSearchCV", new=DummySearch):
+    stub = TrackingStub()
+    with patch("src.train.build_model_pipeline", return_value=stub):
+        with patch("src.train.load_data") as mock_load_data:
+            mock_load_data.return_value = _make_mock_df(n_rows=60)
+            train.train()
+
+    # Should have: N configs fits + 1 final refit on Train+Val
+    # With default 12 configs: 12 + 1 = 13 fits
+    assert len(stub.fit_calls) > 1, f"Expected multiple fits, got {len(stub.fit_calls)}"
+
+    # The last fit should be on a LARGER dataset (Train+Val > Train alone)
+    first_fit_size = stub.fit_calls[0][0]
+    last_fit_size = stub.fit_calls[-1][0]
+    assert last_fit_size > first_fit_size, (
+        f"Final refit ({last_fit_size}) should be larger than initial fits ({first_fit_size})"
+    )
+
+    # Predict should be called: N configs * 1 (val) + 1 (test) = N + 1
+    assert len(stub.predict_calls) > 1
+
+    # Artifact should be created
+    assert artifact_path.exists()
+    loaded = joblib.load(artifact_path)
+    assert isinstance(loaded, TrackingStub)
+
+
+def test_model_artifact_created_after_training(tmp_path, monkeypatch):
+    """Verify model artifact is created after training with manual search."""
+    artifact_path = tmp_path / "ecommerce_pipeline.pkl"
+    monkeypatch.setattr(train, "ARTIFACT_PATH", artifact_path)
+
+    with patch("src.train.build_model_pipeline", return_value=StubPipeline()):
         with patch("src.train.load_data") as mock_load_data:
             mock_load_data.return_value = _make_mock_df(n_rows=24)
             train.train()
 
     assert artifact_path.exists()
     loaded = joblib.load(artifact_path)
-    assert isinstance(loaded, Pipeline)
+    assert isinstance(loaded, StubPipeline)
