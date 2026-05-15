@@ -1,3 +1,8 @@
+---
+title: Sistema Predictivo de Intención de Compra
+sdk: docker
+app_port: 7860
+---
 # Sistema Predictivo de Intención de Compra E-commerce
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
