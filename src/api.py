@@ -10,6 +10,8 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from src.pipeline import CATEGORICAL_FEATURES, NUMERIC_FEATURES
+
 ARTIFACT_PATH = Path(__file__).resolve().parent.parent / "artifacts" / "ecommerce_pipeline.pkl"
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "artifacts" / "model_config.json"
 
@@ -178,5 +180,8 @@ def predict_intent_fast(request: PredictRequest):
         dtype=object,
     )
 
-    proba = model_pipeline.predict_proba(array)[0][1]
+    # Wrap in DataFrame so ColumnTransformer can select columns by name
+    columns = NUMERIC_FEATURES + CATEGORICAL_FEATURES
+    df = pd.DataFrame(array, columns=columns)
+    proba = model_pipeline.predict_proba(df)[0][1]
     return _build_response(proba)
